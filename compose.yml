@@ -1,0 +1,189 @@
+---
+services:
+
+  traefik:
+    image: traefik:v3
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--providers.file.directory=/etc/traefik/certs"
+      - "--providers.file.watch=true"
+      - "--serversTransport.insecureSkipVerify=true"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./traefik/certs:/etc/traefik/certs
+    environment:
+      - "TZ=${TZ}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.lan`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.services.traefik-docker.loadbalancer.server.port=8080"
+
+
+  zabbix-server:
+    image: zabbix/zabbix-server-mysql:alpine-latest
+    container_name: zabbix-server
+    restart: unless-stopped
+    ports:
+      - "10051:10051"
+    depends_on:
+      zabbix_db:
+        condition: service_healthy
+    environment:
+      # --- Base de datos (requeridos) ---
+      - DB_SERVER_HOST=zabbix_db
+      - DB_SERVER_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      # - MYSQL_USER_FILE=        # alternativa: leer user de archivo (Docker secrets)
+      # - MYSQL_PASSWORD_FILE=    # alternativa: leer password de archivo
+      # - MYSQL_ROOT_PASSWORD=    # solo si se quiere que Zabbix cree el usuario
+      # - MYSQL_ROOT_PASSWORD_FILE=
+
+      # --- Servidor ---
+      - ZBX_DEBUGLEVEL=3          # 0=none 1=crit 2=error 3=warn 4=debug 5=trace
+      - ZBX_TIMEOUT=4             # segundos timeout por check
+      # - ZBX_LOADMODULE=         # módulos cargables: dummy1.so,dummy2.so
+
+      # --- Workers (reducidos para 2GB RAM) ---
+      - ZBX_STARTPOLLERS=3        # default 5 — checks activos
+      - ZBX_STARTTRAPPERS=3       # default 5 — recepción de traps
+      - ZBX_STARTPINGERS=1        # default 1 — ICMP ping
+      - ZBX_STARTDISCOVERERS=1    # default 1 — discovery de red
+      - ZBX_STARTHISTORYPOLLERS=2 # default 5 — HTTP agent/calculated
+      - ZBX_STARTHTTPPOLLERS=1    # default 1 — web monitoring
+      - ZBX_STARTTIMERS=1         # default 1 — time-based triggers
+      - ZBX_STARTESCALATORS=1     # default 1 — escalado de alertas
+      - ZBX_STARTALERTERS=2       # default 3 — envío de notificaciones
+
+      # --- Cache (ajustado para 2GB RAM) ---
+      - ZBX_CACHESIZE=32M         # default 8M  — config/host cache
+      - ZBX_HISTORYCACHESIZE=16M  # default 16M — buffer escritura historia
+      - ZBX_HISTORYTEXTCACHESIZE=16M
+      - ZBX_TRENDCACHESIZE=4M     # default 4M  — tendencias
+      - ZBX_VALUECACHESIZE=8M     # default 8M  — caché lecturas recientes
+
+      # --- Red ---
+      # - ZBX_LISTENIP=           # default: todas las interfaces
+      # - ZBX_LISTENPORT=10051    # default 10051
+      # - ZBX_SOURCEIP=           # IP origen para checks activos
+
+      # --- Java Gateway (desactivado) ---
+      - ZBX_JAVAGATEWAY_ENABLE=false
+      # - ZBX_JAVAGATEWAY=zabbix-java-gateway
+      # - ZBX_JAVAGATEWAYPORT=10052
+      # - ZBX_STARTJAVAPOLLERS=5
+
+      # --- SNMP traps ---
+      # - ZBX_ENABLE_SNMP_TRAPS=true
+      # - ZBX_SNMPTRAPPERFILE=/var/lib/zabbix/snmptraps/snmptraps.log
+
+      # --- TLS (desactivado) ---
+      # - ZBX_TLSCAFILE=
+      # - ZBX_TLSCERTFILE=
+      # - ZBX_TLSKEYFILE=
+      # - ZBX_DBTLSCONNECT=       # required_without_verify | verify_ca | verify_full
+      # - ZBX_DBTLSCAFILE=
+
+      # --- Alta disponibilidad ---
+      # - ZBX_HANODENAME=         # nombre del nodo HA
+      # - ZBX_AUTOHANODENAME=fqdn
+      # - ZBX_NODEADDRESS=localhost
+
+      - TZ=${TZ}
+    volumes:
+      - ./zabbix/alertscripts:/usr/lib/zabbix/alertscripts
+      - ./zabbix/externalscripts:/usr/lib/zabbix/externalscripts
+      - ./zabbix/modules:/var/lib/zabbix/modules
+      - ./zabbix/enc:/var/lib/zabbix/enc
+      - ./zabbix/ssh_keys:/var/lib/zabbix/ssh_keys
+      - ./zabbix/export:/var/lib/zabbix/export
+      - ./zabbix/mibs:/var/lib/zabbix/mibs
+      - ./zabbix/snmptraps:/var/lib/zabbix/snmptraps
+
+
+  zabbix_db:
+    image: lscr.io/linuxserver/mariadb:latest
+    container_name: zabbix_db
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - ./zabbix_db/data:/config
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-mysql:alpine-latest
+    container_name: zabbix-web
+    restart: unless-stopped
+    expose:
+      - "8080"
+    depends_on:
+      zabbix_db:
+        condition: service_healthy
+      zabbix-server:
+        condition: service_started
+    environment:
+      - DB_SERVER_HOST=zabbix_db
+      - DB_SERVER_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - ZBX_SERVER_HOST=zabbix-server
+      - ZBX_SERVER_PORT=10051
+      - PHP_TZ=${PHP_TZ}
+      # - ZBX_SERVER_NAME=        # nombre visible en la UI
+      # - ZBX_MAXEXECUTIONTIME=300
+      # - ZBX_MEMORYLIMIT=128M
+      # - ZBX_POSTMAXSIZE=16M
+      # - ZBX_UPLOADMAXFILESIZE=2M
+      # - ZBX_MAXINPUTTIME=300
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.zabbix.rule=Host(`zabbix.lan`)"
+      - "traefik.http.routers.zabbix.entrypoints=websecure"
+      - "traefik.http.routers.zabbix.tls=true"
+      - "traefik.http.services.zabbix.loadbalancer.server.port=8080"
+      - "traefik.http.routers.zabbix.service=zabbix"
+
+  zabbix-agent:
+    image: zabbix/zabbix-agent2:alpine-latest
+    container_name: zabbix-agent2
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - ZBX_SERVER_HOST=zabbix-server
+      - ZBX_HOSTNAME=ct-zabbix
+      - TZ=${TZ}
