@@ -121,11 +121,19 @@ services:
     container_name: zabbix-agent2
     restart: unless-stopped
     pid: "host"
+    command:
+      - /bin/sh
+      - -c
+      - "sed -i '/^Plugins.EmberPlus.System.Path=/d' /etc/zabbix/zabbix_agent2.d/plugins.d/ember.conf && exec /usr/sbin/zabbix_agent2 --foreground -c /etc/zabbix/zabbix_agent2.conf"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./zabbix/agent2/zzz_explicit.conf:/etc/zabbix/zabbix_agent2.d/zzz_explicit.conf:ro
     environment:
-      - ZBX_SERVER_HOST=zabbix-server
+      - ZBX_PASSIVESERVERS=zabbix-server
+      - ZBX_ACTIVESERVERS=zabbix-server
+      - ZBX_LISTENPORT=10050
       - ZBX_HOSTNAME=${ZBX_HOSTNAME}
+      - ZBX_PERSISTENTBUFFERFILE=
       - TZ=${TZ}
     depends_on:
       - zabbix-server

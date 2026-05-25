@@ -1,6 +1,9 @@
 zabbix/*
+!zabbix/agent2/
+!zabbix/agent2/zzz_explicit.conf
 zabbix_db/data/*
 !zabbix_db/data/custom.cnf
 CLAUDE.md
 .claude/
+7.4zabbix*
 traefik/
