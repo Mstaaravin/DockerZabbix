@@ -35,7 +35,7 @@ services:
 
 
   zabbix-server:
-    image: zabbix/zabbix-server-mysql:alpine-latest
+    image: zabbix/zabbix-server-mysql:${IMAGE_TAG}
     container_name: zabbix-server
     restart: unless-stopped
     ports:
@@ -52,8 +52,8 @@ services:
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       # - MYSQL_USER_FILE=        # alternativa: leer user de archivo (Docker secrets)
       # - MYSQL_PASSWORD_FILE=    # alternativa: leer password de archivo
-      # - MYSQL_ROOT_PASSWORD=    # solo si se quiere que Zabbix cree el usuario
-      # - MYSQL_ROOT_PASSWORD_FILE=
+      - MARIA_ROOT_PASSWORD=    # solo si se quiere que Zabbix cree el usuario
+      # - MARIA_ROOT_PASSWORD_FILE=
 
       # --- Servidor ---
       - ZBX_DEBUGLEVEL=3          # 0=none 1=crit 2=error 3=warn 4=debug 5=trace
@@ -104,7 +104,6 @@ services:
       # - ZBX_HANODENAME=         # nombre del nodo HA
       # - ZBX_AUTOHANODENAME=fqdn
       # - ZBX_NODEADDRESS=localhost
-
       - TZ=${TZ}
     volumes:
       - ./zabbix/alertscripts:/usr/lib/zabbix/alertscripts
@@ -117,29 +116,8 @@ services:
       - ./zabbix/snmptraps:/var/lib/zabbix/snmptraps
 
 
-  zabbix_db:
-    image: lscr.io/linuxserver/mariadb:latest
-    container_name: zabbix_db
-    restart: unless-stopped
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=${TZ}
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-      - MYSQL_DATABASE=${MYSQL_DATABASE}
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-    volumes:
-      - ./zabbix_db/data:/config
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-
   zabbix-web:
-    image: zabbix/zabbix-web-nginx-mysql:alpine-latest
+    image: zabbix/zabbix-web-nginx-mysql:${IMAGE_TAG}
     container_name: zabbix-web
     restart: unless-stopped
     expose:
@@ -177,13 +155,22 @@ services:
       - "traefik.http.services.zabbix.loadbalancer.server.port=8080"
       - "traefik.http.routers.zabbix.service=zabbix"
 
-  zabbix-agent:
-    image: zabbix/zabbix-agent2:alpine-latest
-    container_name: zabbix-agent2
+  zabbix_db:
+    image: mariadb:${MARIADB_VERSION}
+    container_name: zabbix_db
     restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - ZBX_SERVER_HOST=zabbix-server
-      - ZBX_HOSTNAME=ct-zabbix
       - TZ=${TZ}
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=${MYSQL_DATABASE}
+      - MARIADB_USER=${MYSQL_USER}
+      - MARIADB_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - ./zabbix_db/data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MARIADB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+

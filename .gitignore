@@ -1,3 +1,4 @@
 zabbix/*
 zabbix_db/data/*
 !zabbix_db/data/custom.cnf
+CLAUDE.md
