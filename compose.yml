@@ -116,6 +116,21 @@ services:
       - ./zabbix/snmptraps:/var/lib/zabbix/snmptraps
 
 
+  zabbix-agent2:
+    image: zabbix/zabbix-agent2:${IMAGE_TAG}
+    container_name: zabbix-agent2
+    restart: unless-stopped
+    pid: "host"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - ZBX_SERVER_HOST=zabbix-server
+      - ZBX_HOSTNAME=${ZBX_HOSTNAME}
+      - TZ=${TZ}
+    depends_on:
+      - zabbix-server
+
+
   zabbix-web:
     image: zabbix/zabbix-web-nginx-mysql:${IMAGE_TAG}
     container_name: zabbix-web
